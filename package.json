@@ -1,0 +1,177 @@
+{
+  "name": "aprender",
+  "displayName": "Aprender",
+  "description": "Transforma código gerado por IA em exercício de digitação: o código vira um texto fantasma e você o redigita por cima.",
+  "version": "0.1.0",
+  "publisher": "joao",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aprender.start",
+        "title": "Aprender: treinar seleção"
+      },
+      {
+        "command": "aprender.reveal",
+        "title": "Aprender: revelar tudo (encerrar treino)"
+      },
+      {
+        "command": "aprender.skipLine",
+        "title": "Aprender: pular linha atual"
+      },
+      {
+        "command": "aprender.installClaudeHook",
+        "title": "Aprender: instalar hook do Claude Code"
+      },
+      {
+        "command": "aprender.toggle",
+        "title": "Aprender: ligar/desligar"
+      },
+      {
+        "command": "aprender.revealAll",
+        "title": "Aprender: revelar todos os treinos"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aprender.start",
+        "key": "ctrl+alt+a",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "aprender.reveal",
+        "key": "ctrl+alt+r",
+        "when": "editorTextFocus && aprender.active"
+      },
+      {
+        "command": "aprender.skipLine",
+        "key": "ctrl+alt+s",
+        "when": "editorTextFocus && aprender.active"
+      },
+      {
+        "command": "aprender.backspace",
+        "key": "backspace",
+        "when": "editorTextFocus && aprender.active && !editorHasSelection"
+      },
+      {
+        "command": "aprender.tab",
+        "key": "tab",
+        "when": "editorTextFocus && aprender.active && !editorHasSelection && !inSnippetMode && !suggestWidgetVisible"
+      },
+      {
+        "command": "aprender.delete",
+        "key": "delete",
+        "when": "editorTextFocus && aprender.active && !editorHasSelection"
+      },
+      {
+        "command": "aprender.paste",
+        "key": "ctrl+v",
+        "mac": "cmd+v",
+        "when": "editorTextFocus && aprender.active"
+      },
+      {
+        "command": "aprender.cut",
+        "key": "ctrl+x",
+        "mac": "cmd+x",
+        "when": "editorTextFocus && aprender.active"
+      },
+      {
+        "command": "aprender.toggle",
+        "key": "ctrl+alt+t"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aprender.start",
+          "when": "editorHasSelection",
+          "group": "aprender@1"
+        },
+        {
+          "command": "aprender.reveal",
+          "when": "aprender.active",
+          "group": "aprender@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Aprender",
+      "properties": {
+        "aprender.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Liga/desliga a extensão. Desligada, o código da IA é escrito normalmente e os treinos em andamento são revelados. Também pelo botão na barra de status ou Ctrl+Alt+T."
+        },
+        "aprender.autoDetect": {
+          "type": "boolean",
+          "default": false,
+          "description": "Detecção heurística para IAs sem hook: ao ver um bloco grande inserido de uma vez, perguntar se deseja treinar. Desnecessário com o hook do Claude Code."
+        },
+        "aprender.minLines": {
+          "type": "number",
+          "default": 3,
+          "description": "Quantidade mínima de linhas inseridas de uma vez para disparar a detecção automática."
+        },
+        "aprender.autoIndent": {
+          "type": "boolean",
+          "default": true,
+          "description": "Preencher automaticamente a indentação de cada linha ao entrar nela."
+        },
+        "aprender.claudeHook.autoStart": {
+          "type": "string",
+          "enum": [
+            "perguntar",
+            "sempre",
+            "nunca"
+          ],
+          "default": "sempre",
+          "enumDescriptions": [
+            "Mostra uma notificação perguntando se quer treinar o bloco.",
+            "Inicia o treino automaticamente sem perguntar.",
+            "Ignora os eventos do hook."
+          ],
+          "description": "O que fazer quando o hook do Claude Code avisa que um arquivo foi escrito."
+        },
+        "aprender.skipComments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Não exigir a digitação de comentários. Linhas de comentário (de qualquer linguagem) já vêm preenchidas e comentários no fim da linha são completados sozinhos."
+        },
+        "aprender.explainBeforeCode": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Com a extensão ligada, injeta em cada prompt do Claude Code a instrução de explicar (problema, solução e funcionamento) antes de escrever código."
+        },
+        "aprender.explainText": {
+          "type": "string",
+          "default": "[Aprender] O usuário está em modo de aprendizado: todo código que você escrever será redigitado por ele à mão, para aprender. Regras: (1) ANTES de criar ou alterar qualquer arquivo, explique em poucas linhas e em português: qual era o problema ou pedido, o que você vai fazer e por quê, e como o código funciona, em termos simples. (2) Só depois da explicação escreva o código. (3) Para criar ou alterar arquivos use as ferramentas Write/Edit, nunca cat/echo/heredoc no terminal. (4) Se o pedido for só uma pergunta, sem código, responda normalmente.",
+          "scope": "application",
+          "editPresentation": "multilineText",
+          "description": "Texto injetado em cada prompt do Claude Code quando 'explainBeforeCode' está ativo."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
