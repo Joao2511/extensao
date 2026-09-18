@@ -35,11 +35,50 @@
       },
       {
         "command": "aprender.toggle",
-        "title": "Aprender: ligar/desligar"
+        "title": "Aprender: escolher modo"
       },
       {
         "command": "aprender.revealAll",
         "title": "Aprender: revelar todos os treinos"
+      },
+      {
+        "command": "aprender.explicarSelecao",
+        "title": "Aprender: só explicar a seleção ou o arquivo (sem treino)"
+      },
+      {
+        "command": "aprender.escolherModelo",
+        "title": "Aprender: escolher modelo da explicação"
+      },
+      {
+        "command": "aprender.escolherEffort",
+        "title": "Aprender: escolher esforço da explicação"
+      },
+      {
+        "command": "aprender.aprenderArquivo",
+        "title": "Aprender: treinar + explicar este arquivo (ou a seleção)"
+      },
+      {
+        "command": "aprender.desafio",
+        "title": "Aprender: ligar/desligar modo desafio"
+      },
+      {
+        "command": "aprender.revelarTrecho",
+        "title": "Aprender: revelar trecho escondido (desafio)"
+      },
+      {
+        "command": "aprender.explicacao.anterior",
+        "title": "Parte anterior",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "aprender.explicacao.proxima",
+        "title": "Próxima parte",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "aprender.explicacao.concluir",
+        "title": "Concluir explicação",
+        "icon": "$(check)"
       }
     ],
     "keybindings": [
@@ -88,6 +127,21 @@
       {
         "command": "aprender.toggle",
         "key": "ctrl+alt+t"
+      },
+      {
+        "command": "aprender.explicarSelecao",
+        "key": "ctrl+alt+e",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "aprender.aprenderArquivo",
+        "key": "ctrl+alt+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "aprender.revelarTrecho",
+        "key": "ctrl+alt+h",
+        "when": "editorTextFocus && aprender.active"
       }
     ],
     "menus": {
@@ -101,17 +155,94 @@
           "command": "aprender.reveal",
           "when": "aprender.active",
           "group": "aprender@2"
+        },
+        {
+          "command": "aprender.explicarSelecao",
+          "group": "aprender@3"
+        },
+        {
+          "command": "aprender.aprenderArquivo",
+          "group": "aprender@4"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "aprender.explicacao.anterior",
+          "when": "commentController == aprender",
+          "group": "inline@1"
+        },
+        {
+          "command": "aprender.explicacao.proxima",
+          "when": "commentController == aprender",
+          "group": "inline@2"
+        },
+        {
+          "command": "aprender.explicacao.concluir",
+          "when": "commentController == aprender",
+          "group": "inline@3"
         }
       ]
     },
     "configuration": {
       "title": "Aprender",
       "properties": {
-        "aprender.enabled": {
-          "type": "boolean",
-          "default": true,
+        "aprender.mode": {
+          "type": "string",
+          "enum": [
+            "desligado",
+            "digitar",
+            "explicar",
+            "digitar+explicar"
+          ],
+          "enumDescriptions": [
+            "A IA escreve normalmente; treinos em andamento são revelados.",
+            "O código da IA vira treino de digitação.",
+            "O código fica normal (sem treino); só a explicação por partes aparece no editor.",
+            "Treino de digitação com a explicação de cada parte acompanhando."
+          ],
+          "default": "digitar",
           "scope": "application",
-          "description": "Liga/desliga a extensão. Desligada, o código da IA é escrito normalmente e os treinos em andamento são revelados. Também pelo botão na barra de status ou Ctrl+Alt+T."
+          "description": "O que fazer quando a IA escreve código. Também pelo botão na barra de status ou Ctrl+Alt+T."
+        },
+        "aprender.desafio.ligado": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Modo desafio: esconde partes do código no treino de digitação (identificadores, números, strings) e você deduz o que falta. Ctrl+Alt+H revela o trecho sob o cursor."
+        },
+        "aprender.desafio.proporcao": {
+          "type": "number",
+          "default": 0.4,
+          "minimum": 0.1,
+          "maximum": 1,
+          "scope": "application",
+          "description": "Fração dos trechos candidatos de cada linha que o desafio esconde (0.1 = poucos, 1 = todos). Sempre esconde pelo menos um por linha."
+        },
+        "aprender.explicar.modelo": {
+          "type": "string",
+          "default": "sonnet",
+          "scope": "application",
+          "description": "Modelo usado para explicar o código; vai na cota da sua conta do Claude Code. Aceita apelidos como haiku, sonnet e opus, ou o nome completo do modelo."
+        },
+        "aprender.explicar.effort": {
+          "type": "string",
+          "enum": [
+            "padrão",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default": "padrão",
+          "scope": "application",
+          "description": "Esforço do Claude ao explicar (--effort). \"padrão\" deixa o modelo decidir; mais esforço demora mais e costuma explicar com mais cuidado."
+        },
+        "aprender.explicar.caminhoDoClaude": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Caminho do executável do Claude Code. Vazio usa o binário da extensão Claude Code instalada no VS Code (ou o `claude` do PATH)."
         },
         "aprender.autoDetect": {
           "type": "boolean",

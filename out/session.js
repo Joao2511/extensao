@@ -3,10 +3,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionManager = void 0;
 const vscode = require("vscode");
 const comments_1 = require("./comments");
+const challenge_1 = require("./challenge");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const STORAGE_KEY = 'aprender.sessions';
+const MODE_LABEL = {
+    digitar: { text: '$(pencil) Aprender: digitar', tip: 'Código da IA vira treino de digitação.' },
+    explicar: { text: '$(book) Aprender: explicar', tip: 'Código fica normal, sem treino; só a explicação aparece.' },
+    'digitar+explicar': {
+        text: '$(mortar-board) Aprender: digitar + explicar',
+        tip: 'Treino de digitação com a explicação de cada parte.',
+    },
+    desligado: { text: '$(circle-slash) Aprender: desligado', tip: 'Código da IA é escrito normalmente.' },
+};
 class SessionManager {
     ctx;
     sessions = new Map();
@@ -20,10 +30,14 @@ class SessionManager {
     toggleBar;
     constructor(ctx) {
         this.ctx = ctx;
+        // O fantasma é uma camada própria, como num teste de digitação: uma decoração por linha, na coluna 0,
+        // com a linha alvo inteira e as colunas já digitadas em branco. `position: absolute` a tira do fluxo,
+        // então o texto real é medido e desenhado como se ela não existisse e nada se desloca ao digitar.
+        // (A API não tem campo para isso; `textDecoration` vai como CSS cru para a folha de estilo.)
         this.ghostType = vscode.window.createTextEditorDecorationType({
-            after: {
+            before: {
                 color: new vscode.ThemeColor('editorGhostText.foreground'),
-                fontStyle: 'italic',
+                textDecoration: 'none; position: absolute; left: 0; top: 0; white-space: pre; pointer-events: none;',
             },
         });
         this.errorType = vscode.window.createTextEditorDecorationType({
@@ -40,18 +54,65 @@ class SessionManager {
         this.toggleBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
         this.toggleBar.command = 'aprender.toggle';
         ctx.subscriptions.push(this.ghostType, this.errorType, this.regionType, this.statusBar, this.toggleBar, vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('aprender.enabled'))
+            if (e.affectsConfiguration('aprender.mode') || e.affectsConfiguration('aprender.desafio.ligado')) {
                 this.updateToggleBar();
+            }
             if (e.affectsConfiguration('aprender'))
                 this.writeState();
         }));
+        this.migrateEnabled();
         this.updateToggleBar();
         this.writeState();
         this.restore();
     }
     // ---------- ligar / desligar ----------
+    get mode() {
+        return this.config.get('mode', 'digitar');
+    }
     get enabled() {
-        return this.config.get('enabled', true);
+        return this.mode !== 'desligado';
+    }
+    get wantsTyping() {
+        return this.mode === 'digitar' || this.mode === 'digitar+explicar';
+    }
+    get wantsExplain() {
+        return this.mode === 'explicar' || this.mode === 'digitar+explicar';
+    }
+    get challenge() {
+        return this.config.get('desafio.ligado', false);
+    }
+    /** Liga/desliga o desafio. Vale para os próximos treinos; os em andamento continuam como começaram. */
+    async toggleChallenge() {
+        const next = !this.challenge;
+        await this.config.update('desafio.ligado', next, vscode.ConfigurationTarget.Global);
+        vscode.window.setStatusBarMessage(next ? 'Aprender: desafio ligado — partes do código ficam escondidas no treino.' : 'Aprender: desafio desligado.', 3000);
+    }
+    /** Desafio: revela o trecho escondido sob o cursor (ou o próximo na linha). */
+    revealHint() {
+        const editor = vscode.window.activeTextEditor;
+        const s = editor && this.sessionFor(editor.document);
+        const cursor = editor?.selection.active;
+        if (!editor || !s || !cursor || !this.inRegion(s, cursor.line))
+            return;
+        const ranges = s.hidden?.[cursor.line - s.startLine];
+        if (!ranges?.length) {
+            vscode.window.setStatusBarMessage('Aprender: nada escondido nesta linha.', 2000);
+            return;
+        }
+        const at = ranges.findIndex(([, end]) => end > cursor.character);
+        ranges.splice(at >= 0 ? at : 0, 1);
+        this.persist();
+        this.render(editor);
+    }
+    /** Versões antigas gravavam o booleano `aprender.enabled`; converte para `aprender.mode` uma vez. */
+    migrateEnabled() {
+        const old = this.config.inspect('enabled')?.globalValue;
+        if (old === undefined)
+            return;
+        void this.config.update('enabled', undefined, vscode.ConfigurationTarget.Global);
+        if (old === false && this.config.inspect('mode')?.globalValue === undefined) {
+            void this.config.update('mode', 'desligado', vscode.ConfigurationTarget.Global);
+        }
     }
     /** Estado lido pelo hook do Claude Code (UserPromptSubmit) para saber se injeta a instrução de explicar. */
     writeState() {
@@ -60,6 +121,7 @@ class SessionManager {
             fs.mkdirSync(dir, { recursive: true });
             const state = {
                 enabled: this.enabled,
+                mode: this.mode,
                 explain: this.config.get('explainBeforeCode', true),
                 explainText: this.config.get('explainText', ''),
                 updatedAt: Date.now(),
@@ -71,25 +133,40 @@ class SessionManager {
         }
     }
     updateToggleBar() {
-        if (this.enabled) {
-            this.toggleBar.text = '$(pencil) Aprender: ligado';
-            this.toggleBar.tooltip = 'Código da IA vira treino de digitação. Clique para desligar (revela todos os treinos).';
-            this.toggleBar.backgroundColor = undefined;
-        }
-        else {
-            this.toggleBar.text = '$(circle-slash) Aprender: desligado';
-            this.toggleBar.tooltip = 'Código da IA é escrito normalmente. Clique para ligar.';
-            this.toggleBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-        }
+        const { text, tip } = MODE_LABEL[this.mode] ?? MODE_LABEL.digitar;
+        this.toggleBar.text = this.challenge && this.wantsTyping ? `${text} · desafio` : text;
+        this.toggleBar.tooltip = `${tip} Clique para trocar o modo (Ctrl+Alt+T).`;
+        this.toggleBar.backgroundColor = this.enabled ? undefined : new vscode.ThemeColor('statusBarItem.warningBackground');
         this.toggleBar.show();
     }
-    /** Alterna o modo. Ao desligar, escreve o código real em todos os treinos em andamento. */
-    async toggle() {
-        const next = !this.enabled;
-        await this.config.update('enabled', next, vscode.ConfigurationTarget.Global);
-        if (!next)
+    /** Pergunta o modo. Ao sair de um modo com digitação, escreve o código real em todos os treinos em andamento. */
+    async chooseMode() {
+        const items = Object.keys(MODE_LABEL).map((mode) => ({
+            mode,
+            label: MODE_LABEL[mode].text.replace('Aprender: ', ''),
+            description: MODE_LABEL[mode].tip + (mode === this.mode ? ' · atual' : ''),
+        }));
+        items.push({ label: 'desafio', kind: vscode.QuickPickItemKind.Separator }, {
+            challenge: true,
+            label: this.challenge ? '$(eye-closed) Desafio: ligado' : '$(eye) Desafio: desligado',
+            description: 'Esconde partes do código no treino; você deduz o que falta. Selecione para alternar.',
+        });
+        const pick = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Como o Aprender deve tratar o código que a IA escrever?',
+        });
+        if (!pick)
+            return;
+        if (pick.challenge)
+            await this.toggleChallenge();
+        else if (pick.mode)
+            await this.setMode(pick.mode);
+    }
+    async setMode(mode) {
+        const hadTyping = this.wantsTyping;
+        await this.config.update('mode', mode, vscode.ConfigurationTarget.Global);
+        if (hadTyping && !this.wantsTyping)
             await this.revealAll();
-        vscode.window.setStatusBarMessage(next ? 'Aprender ligado.' : 'Aprender desligado: código revelado.', 3000);
+        vscode.window.setStatusBarMessage(`Aprender: modo "${mode}".`, 3000);
     }
     /** Revela todos os treinos, inclusive em arquivos que não estão abertos no editor. */
     async revealAll() {
@@ -141,6 +218,15 @@ class SessionManager {
     inRegion(s, line) {
         return line >= s.startLine && line <= this.endLine(s);
     }
+    /** Linhas `start..end` como código de verdade: dentro de um treino vem do gabarito, fora vem do editor. */
+    realLines(doc, start, end) {
+        const s = this.sessionFor(doc);
+        const out = [];
+        for (let i = start; i <= end && i < doc.lineCount; i++) {
+            out.push(s && this.inRegion(s, i) ? s.targetLines[i - s.startLine] : doc.lineAt(i).text);
+        }
+        return out;
+    }
     eol(doc) {
         return doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
     }
@@ -186,13 +272,18 @@ class SessionManager {
         const targetLines = target.split(/\r?\n/);
         if (targetLines.every((l) => l.trim() === ''))
             return;
+        const required = this.config.get('skipComments', true)
+            ? (0, comments_1.requiredLengths)(targetLines, doc.languageId)
+            : targetLines.map((l) => l.length);
         const session = {
             uri: doc.uri.toString(),
             startLine: range.start.line,
             targetLines,
-            required: this.config.get('skipComments', true)
-                ? (0, comments_1.requiredLengths)(targetLines, doc.languageId)
-                : targetLines.map((l) => l.length),
+            required,
+            // Desafio: sorteia agora o que esconder e guarda junto do gabarito, para sobreviver a reload.
+            hidden: this.challenge
+                ? (0, challenge_1.chooseHidden)(targetLines, required, this.config.get('desafio.proporcao', 0.4))
+                : undefined,
             startedAt: Date.now(),
             keystrokes: 0,
             errors: 0,
@@ -260,11 +351,18 @@ class SessionManager {
         }
         const pos = editor.selection.active;
         const expected = s.targetLines[pos.line - s.startLine];
-        const lineOk = editor.document.lineAt(pos.line).text === expected.slice(0, pos.character);
+        const current = editor.document.lineAt(pos.line).text;
+        const lineOk = current === expected.slice(0, pos.character);
         s.keystrokes++;
         if (!lineOk || expected.slice(pos.character, pos.character + text.length) !== text)
             s.errors++;
-        await this.edit(editor, (b) => b.insert(pos, text));
+        // Sem await entre os dois: o edit e a decoração saem no mesmo tick e o editor repinta uma vez só.
+        const applied = this.edit(editor, (b) => b.insert(pos, text));
+        this.render(editor, {
+            line: pos.line,
+            text: current.slice(0, pos.character) + text + current.slice(pos.character),
+        });
+        await applied;
         this.render(editor);
     }
     /** Tab dentro do treino insere a indentação do editor, sem passar pelo auto-indent do VS Code. */
@@ -301,7 +399,12 @@ class SessionManager {
         const line = editor.document.lineAt(cursor.line);
         if (cursor.character >= line.text.length)
             return;
-        await this.edit(editor, (b) => b.delete(new vscode.Range(cursor.line, cursor.character, cursor.line, cursor.character + 1)));
+        const applied = this.edit(editor, (b) => b.delete(new vscode.Range(cursor.line, cursor.character, cursor.line, cursor.character + 1)));
+        this.render(editor, {
+            line: cursor.line,
+            text: line.text.slice(0, cursor.character) + line.text.slice(cursor.character + 1),
+        });
+        await applied;
         this.render(editor);
     }
     warnedFormat = false;
@@ -359,7 +462,13 @@ class SessionManager {
             return vscode.commands.executeCommand('deleteLeft');
         }
         if (cursor.character > 0) {
-            await this.edit(editor, (b) => b.delete(new vscode.Range(cursor.line, cursor.character - 1, cursor.line, cursor.character)));
+            const current = editor.document.lineAt(cursor.line).text;
+            const applied = this.edit(editor, (b) => b.delete(new vscode.Range(cursor.line, cursor.character - 1, cursor.line, cursor.character)));
+            this.render(editor, {
+                line: cursor.line,
+                text: current.slice(0, cursor.character - 1) + current.slice(cursor.character),
+            });
+            await applied;
         }
         else if (cursor.line > s.startLine) {
             // Nunca junta linhas (isso quebraria a região); só volta para o fim da linha anterior.
@@ -491,11 +600,34 @@ class SessionManager {
         editor.setDecorations(this.errorType, []);
         editor.setDecorations(this.regionType, []);
     }
-    visible(text, tabSize) {
-        // Decorações colapsam espaços; usa NBSP para preservar alinhamento.
-        return text.replace(/\t/g, ' '.repeat(tabSize)).replace(/ /g, ' ');
+    /**
+     * Texto como o editor o desenha a partir da coluna `col`: tab avança até a próxima parada de tabulação
+     * e espaço vira NBSP, porque decoração colapsa espaço comum. Assim a camada fantasma coincide com o texto real.
+     */
+    expand(text, col, tabSize) {
+        let out = '';
+        for (const ch of text) {
+            if (ch === '\t') {
+                const n = tabSize - (col % tabSize);
+                out += ' '.repeat(n);
+                col += n;
+            }
+            else {
+                out += ch === ' ' ? ' ' : ch;
+                col++;
+            }
+        }
+        return out;
     }
-    render(editor) {
+    /**
+     * Pinta as decorações do treino.
+     *
+     * `preview` diz como uma linha vai ficar depois de um edit que ainda está a caminho do editor.
+     * Com ele a decoração nova viaja no mesmo tick do edit e o editor aplica os dois de uma vez;
+     * sem ele havia um quadro intermediário em que o fantasma antigo aparecia uma casa à direita.
+     * Nesse modo só pinta: o arquivo ainda não mudou, então quem preenche e conclui é o render real.
+     */
+    render(editor, preview) {
         const s = this.sessionFor(editor.document);
         if (!s)
             return;
@@ -507,7 +639,7 @@ class SessionManager {
         let done = 0;
         s.targetLines.forEach((expected, i) => {
             const lineNo = s.startLine + i;
-            const typed = doc.lineAt(lineNo).text;
+            const typed = preview && preview.line === lineNo ? preview.text : doc.lineAt(lineNo).text;
             let p = 0;
             while (p < typed.length && p < expected.length && typed[p] === expected[p])
                 p++;
@@ -520,12 +652,18 @@ class SessionManager {
                 done++;
             if (p < typed.length)
                 errors.push(new vscode.Range(lineNo, p, lineNo, typed.length));
-            const remaining = expected.slice(p);
+            // Fantasma alinhado por coluna: o que já foi digitado (certo ou errado) vira branco e o resto da
+            // linha alvo continua no lugar. Assim ele nunca se move; só troca uma letra por vazio a cada tecla.
+            // No desafio o fantasma mostra `_` nos trechos escondidos; a checagem acima continua contra o gabarito real.
+            const remaining = (0, challenge_1.mask)(expected, s.hidden?.[i]).slice(typed.length);
             if (remaining) {
-                const at = new vscode.Position(lineNo, typed.length);
+                const width = this.expand(typed, 0, tabSize).length;
+                const at = new vscode.Position(lineNo, 0);
                 ghosts.push({
                     range: new vscode.Range(at, at),
-                    renderOptions: { after: { contentText: this.visible(remaining, tabSize) } },
+                    renderOptions: {
+                        before: { contentText: ' '.repeat(width) + this.expand(remaining, width, tabSize) },
+                    },
                 });
             }
         });
@@ -538,6 +676,9 @@ class SessionManager {
         this.statusBar.text = `$(pencil) Aprender ${done}/${s.targetLines.length} · ${st.acc}% · ${st.errors} erros · ${st.time}`;
         this.statusBar.tooltip = 'Clique para revelar tudo e encerrar o treino';
         this.statusBar.show();
+        // Estado previsto: o arquivo ainda não mudou, então não é hora de preencher linha nem de concluir.
+        if (preview)
+            return;
         if (toFill.length) {
             void this.fillLines(editor, s, toFill);
             return; // o edit dispara onDocChange, que renderiza de novo

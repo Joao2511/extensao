@@ -9,6 +9,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Chamado pela própria extensão (pedido de explicação via `claude -p`): não injeta nem observa nada.
+if (process.env.APRENDER_SKIP_HOOK) process.exit(0);
+
 const BASE = path.join(os.homedir(), '.aprender');
 const EVENTS = path.join(BASE, 'events');
 const MARK = path.join(BASE, 'bash-start');

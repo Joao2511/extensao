@@ -15,14 +15,16 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 class ClaudeHookReceiver {
     ctx;
     mgr;
-    out = vscode.window.createOutputChannel('Aprender');
+    walk;
+    out;
     log(msg) {
         this.out.appendLine(`[${new Date().toLocaleTimeString()}] ${msg}`);
     }
-    constructor(ctx, mgr) {
+    constructor(ctx, mgr, walk, out) {
         this.ctx = ctx;
         this.mgr = mgr;
-        this.ctx.subscriptions.push(this.out);
+        this.walk = walk;
+        this.out = out;
         fs.mkdirSync(EVENTS_DIR, { recursive: true });
         this.log(`observando ${EVENTS_DIR}; workspaces: ${(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath).join(', ') || '(nenhum)'}`);
         const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(EVENTS_DIR), '*.json'));
@@ -80,7 +82,7 @@ class ClaudeHookReceiver {
         catch {
             return; // outra janela pegou primeiro
         }
-        this.log(`evento ${ev.tool}: ${ev.filePath}`);
+        this.log(`evento ${ev.tool}: ${ev.filePath} (modo ${this.mgr.mode})`);
         if (!this.mgr.enabled) {
             this.log('extensão desligada; código mantido como a IA escreveu');
             return;
@@ -103,13 +105,21 @@ class ClaudeHookReceiver {
             return;
         if (mode === 'perguntar') {
             const lines = range.end.line - range.start.line + 1;
-            const choice = await vscode.window.showInformationMessage(`Aprender: o Claude Code escreveu ${lines} linhas em ${vscode.workspace.asRelativePath(doc.uri)}. Treinar?`, 'Treinar', 'Ignorar');
-            if (choice !== 'Treinar')
+            const choice = await vscode.window.showInformationMessage(`Aprender: o Claude Code escreveu ${lines} linhas em ${vscode.workspace.asRelativePath(doc.uri)}. Estudar?`, 'Estudar', 'Ignorar');
+            if (choice !== 'Estudar')
                 return;
         }
         const editor = await vscode.window.showTextDocument(doc);
-        await this.mgr.startSession(editor, range);
-        this.log('treino iniciado');
+        // Guarda o código antes de o treino apagar as linhas: a explicação é sobre ele, não sobre o fantasma.
+        const code = this.mgr.realLines(doc, range.start.line, range.end.line);
+        if (this.mgr.wantsTyping) {
+            await this.mgr.startSession(editor, range);
+            this.log('treino iniciado');
+        }
+        if (this.mgr.wantsExplain) {
+            void this.walk.start(editor, range.start.line, code);
+            this.log('explicação pedida');
+        }
     }
     /** Encontra no documento o maior bloco que a IA inseriu e devolve o range em linhas inteiras. */
     locate(doc, ev) {
