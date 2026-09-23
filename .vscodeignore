@@ -2,3 +2,11 @@
 src/**
 tsconfig.json
 **/*.map
+**/*.ts
+exemplo/**
+.gitignore
+.git/**
+.claude/**
+.aprender/**
+node_modules/**
+*.vsix

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { SessionManager } from './session';
 import { Walkthrough } from './walkthrough';
+import { nodeVersion } from './platform';
 
 interface HookEvent {
   tool: string;
@@ -13,8 +14,12 @@ interface HookEvent {
   at?: number;
 }
 
-const EVENTS_DIR = path.join(os.homedir(), '.aprender', 'events');
+const BASE_DIR = path.join(os.homedir(), '.aprender');
+const EVENTS_DIR = path.join(BASE_DIR, 'events');
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Cópia do script do hook num caminho que não muda entre versões da extensão nem entre sistemas. */
+const HOOK_SCRIPT = path.join(BASE_DIR, 'claude-hook.js');
+const HOOK_COMMAND = `node "${HOOK_SCRIPT.replace(/\\/g, '/')}"`;
 
 /**
  * Observa ~/.aprender/events/*.json, gravados pelo hook PostToolUse do Claude Code.
@@ -33,6 +38,7 @@ export class ClaudeHookReceiver {
     private out: vscode.OutputChannel,
   ) {
     fs.mkdirSync(EVENTS_DIR, { recursive: true });
+    this.syncHookScript();
     this.log(`observando ${EVENTS_DIR}; workspaces: ${(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath).join(', ') || '(nenhum)'}`);
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(EVENTS_DIR), '*.json'),
@@ -108,14 +114,28 @@ export class ClaudeHookReceiver {
       this.log('bloco inserido não encontrado no arquivo; nada feito');
       return;
     }
-    this.log(`bloco: linhas ${range.start.line + 1}-${range.end.line + 1}`);
+    await this.study(doc, range, 'o Claude Code');
+  }
+
+  /**
+   * Transforma um bloco escrito pela IA em estudo (treino e/ou explicação, conforme o modo).
+   * Usado pelo hook do Claude Code e pelo observador de arquivos (qualquer IA).
+   */
+  async study(doc: vscode.TextDocument, range: vscode.Range, who: string) {
+    if (!this.mgr.enabled) return;
+    if (this.mgr.hasSession(doc)) {
+      // Hook e observador podem avisar do mesmo arquivo; o primeiro a chegar vence.
+      this.log(`já há treino em ${vscode.workspace.asRelativePath(doc.uri)}; bloco ignorado`);
+      return;
+    }
+    this.log(`bloco de ${who}: linhas ${range.start.line + 1}-${range.end.line + 1} em ${vscode.workspace.asRelativePath(doc.uri)}`);
 
     const mode = vscode.workspace.getConfiguration('aprender').get<string>('claudeHook.autoStart', 'perguntar');
     if (mode === 'nunca') return;
     if (mode === 'perguntar') {
       const lines = range.end.line - range.start.line + 1;
       const choice = await vscode.window.showInformationMessage(
-        `Aprender: o Claude Code escreveu ${lines} linhas em ${vscode.workspace.asRelativePath(doc.uri)}. Estudar?`,
+        `Aprender: ${who} escreveu ${lines} linhas em ${vscode.workspace.asRelativePath(doc.uri)}. Estudar?`,
         'Estudar',
         'Ignorar',
       );
@@ -184,13 +204,66 @@ export class ClaudeHookReceiver {
       pick.scope === 'global'
         ? path.join(os.homedir(), '.claude', 'settings.json')
         : path.join(folder!.uri.fsPath, '.claude', 'settings.json');
+    this.syncHookScript();
     this.writeHook(settingsPath);
     this.out.show(true);
+    const node = await nodeVersion();
+    this.log(node ? `node encontrado: ${node}` : 'node NÃO encontrado no PATH');
+    if (!node) {
+      vscode.window.showWarningMessage(
+        'Aprender: o Node.js não foi encontrado. O hook do Claude Code roda com "node"; instale o Node.js (nodejs.org) e reinicie o Claude Code.',
+      );
+    }
+  }
+
+  /**
+   * Copia o script do hook para ~/.aprender/ a cada ativação (assim atualizações da extensão chegam ao hook)
+   * e corrige instalações antigas que apontavam para a pasta versionada da extensão.
+   */
+  private syncHookScript() {
+    try {
+      fs.copyFileSync(path.join(this.ctx.extensionPath, 'hooks', 'claude-hook.js'), HOOK_SCRIPT);
+    } catch (e) {
+      this.log(`não consegui copiar o script do hook: ${e instanceof Error ? e.message : e}`);
+      return;
+    }
+    const candidates = [
+      path.join(os.homedir(), '.claude', 'settings.json'),
+      ...(vscode.workspace.workspaceFolders ?? []).map((f) => path.join(f.uri.fsPath, '.claude', 'settings.json')),
+    ];
+    for (const file of candidates) {
+      let text: string;
+      try {
+        text = fs.readFileSync(file, 'utf8');
+      } catch {
+        continue;
+      }
+      if (!text.includes('claude-hook.js')) continue; // hook nunca instalado aqui: não mexe
+      try {
+        const settings = JSON.parse(text);
+        let changed = false;
+        for (const list of Object.values<any[]>(settings.hooks ?? {})) {
+          for (const entry of list ?? []) {
+            for (const h of entry?.hooks ?? []) {
+              if (typeof h.command === 'string' && h.command.includes('claude-hook.js') && h.command !== HOOK_COMMAND) {
+                h.command = HOOK_COMMAND;
+                changed = true;
+              }
+            }
+          }
+        }
+        if (changed) {
+          fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
+          this.log(`hook atualizado para o caminho fixo em ${file}`);
+        }
+      } catch {
+        /* JSON inválido: deixa como está */
+      }
+    }
   }
 
   private writeHook(settingsPath: string) {
-    const scriptPath = path.join(this.ctx.extensionPath, 'hooks', 'claude-hook.js').replace(/\\/g, '/');
-    const command = `node "${scriptPath}"`;
+    const command = HOOK_COMMAND;
 
     let settings: any = {};
     if (fs.existsSync(settingsPath)) {

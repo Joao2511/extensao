@@ -1,11 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Explainer = void 0;
-const child_process_1 = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const platform_1 = require("./platform");
 const CACHE_DIR = path.join(os.homedir(), '.aprender', 'explicacoes');
 /** Formato que o Claude é obrigado a devolver (--json-schema): nada de parsear texto solto. */
 const SCHEMA = JSON.stringify({
@@ -77,7 +77,7 @@ class Explainer {
         return parts;
     }
     cancel() {
-        this.child?.kill();
+        (0, platform_1.killTree)(this.child);
         this.child = undefined;
     }
     /** Mesmo trecho, mesma linguagem e mesmo modelo dão a mesma explicação: não gasta cota de novo. */
@@ -109,7 +109,7 @@ class Explainer {
         delete env.CLAUDECODE; // se o VS Code foi aberto de dentro do Claude Code, o filho recusaria rodar
         this.cancel();
         return new Promise((resolve, reject) => {
-            const child = (0, child_process_1.execFile)(this.binary, args, { env, cwd: os.homedir(), maxBuffer: 16 * 1024 * 1024, timeout: 180_000 }, (err, stdout, stderr) => {
+            const child = (0, platform_1.runFile)(this.binary, args, { env, cwd: os.homedir(), maxBuffer: 16 * 1024 * 1024, timeout: 180_000 }, (err, stdout, stderr) => {
                 if (this.child === child)
                     this.child = undefined;
                 if (err && !stdout)

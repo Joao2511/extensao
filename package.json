@@ -1,8 +1,8 @@
 {
   "name": "aprender",
   "displayName": "Aprender",
-  "description": "Transforma código gerado por IA em exercício de digitação: o código vira um texto fantasma e você o redigita por cima.",
-  "version": "0.1.0",
+  "description": "Transforma código gerado por IA (Claude Code, Codex, Gemini, Copilot...) em exercício de digitação: o código vira um texto fantasma e você o redigita por cima.",
+  "version": "0.3.0",
   "publisher": "joao",
   "engines": {
     "vscode": "^1.85.0"
@@ -32,6 +32,10 @@
       {
         "command": "aprender.installClaudeHook",
         "title": "Aprender: instalar hook do Claude Code"
+      },
+      {
+        "command": "aprender.copiarInstrucao",
+        "title": "Aprender: copiar instrução de explicação (para Copilot, Cursor, Windsurf, Aider)"
       },
       {
         "command": "aprender.toggle",
@@ -126,7 +130,8 @@
       },
       {
         "command": "aprender.toggle",
-        "key": "ctrl+alt+t"
+        "key": "ctrl+alt+t",
+        "linux": "ctrl+alt+shift+t"
       },
       {
         "command": "aprender.explicarSelecao",
@@ -204,6 +209,12 @@
           "scope": "application",
           "description": "O que fazer quando a IA escreve código. Também pelo botão na barra de status ou Ctrl+Alt+T."
         },
+        "aprender.observarArquivos": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Observa os arquivos do projeto: todo arquivo alterado no disco por outro programa (Codex, Gemini CLI, Aider, Claude Code...) vira estudo. Funciona com qualquer IA de terminal, sem hook. Ignora salvamentos do próprio VS Code e mudanças em massa (git, npm)."
+        },
         "aprender.desafio.ligado": {
           "type": "boolean",
           "default": false,
@@ -242,12 +253,12 @@
           "type": "string",
           "default": "",
           "scope": "application",
-          "description": "Caminho do executável do Claude Code. Vazio usa o binário da extensão Claude Code instalada no VS Code (ou o `claude` do PATH)."
+          "description": "Caminho do executável do Claude Code usado na explicação por partes. Vazio procura sozinho: extensão Claude Code do VS Code, PATH e pastas comuns (~/.local/bin, /opt/homebrew/bin, %APPDATA%\npm...)."
         },
         "aprender.autoDetect": {
           "type": "boolean",
           "default": false,
-          "description": "Detecção heurística para IAs sem hook: ao ver um bloco grande inserido de uma vez, perguntar se deseja treinar. Desnecessário com o hook do Claude Code."
+          "description": "Para IAs que editam dentro do editor (Copilot Chat/agente, Cursor, Windsurf): ao ver um bloco de várias linhas inserido de uma vez num arquivo aberto, pergunta se deseja estudar. Não distingue IA de colar, por isso pergunta."
         },
         "aprender.minLines": {
           "type": "number",
@@ -272,7 +283,7 @@
             "Inicia o treino automaticamente sem perguntar.",
             "Ignora os eventos do hook."
           ],
-          "description": "O que fazer quando o hook do Claude Code avisa que um arquivo foi escrito."
+          "description": "O que fazer quando uma IA escreve um bloco (via hook do Claude Code ou observador de arquivos): estudar direto, perguntar antes ou ignorar."
         },
         "aprender.skipComments": {
           "type": "boolean",
@@ -291,6 +302,19 @@
           "scope": "application",
           "editPresentation": "multilineText",
           "description": "Texto injetado em cada prompt do Claude Code quando 'explainBeforeCode' está ativo."
+        },
+        "aprender.explicar.outrasIAs": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Com a extensão ligada e 'explainBeforeCode' ativo, escreve a instrução de explicar antes de codar nos arquivos globais de instruções do Codex (~/.codex/AGENTS.md) e do Gemini CLI/Antigravity (~/.gemini/GEMINI.md). O bloco é removido ao desligar; o resto do arquivo não é tocado. Só escreve se a pasta da ferramenta existir."
+        },
+        "aprender.explainTextOutrasIAs": {
+          "type": "string",
+          "default": "[Aprender] O usuário está em modo de aprendizado: todo código que você escrever será redigitado por ele à mão, para aprender. Regras: (1) ANTES de criar ou alterar qualquer arquivo, explique em poucas linhas e em português: qual era o problema ou pedido, o que você vai fazer e por quê, e como o código funciona, em termos simples. (2) Só depois da explicação escreva o código. (3) Prefira alterações pequenas e focadas; não reescreva arquivos inteiros sem necessidade, porque cada linha alterada vira exercício de digitação. (4) Se o pedido for só uma pergunta, sem código, responda normalmente.",
+          "scope": "application",
+          "editPresentation": "multilineText",
+          "description": "Texto da instrução para Codex, Gemini e as demais IAs (o do Claude Code fica em 'explainText')."
         }
       }
     }
@@ -298,11 +322,24 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile",
+    "package": "npx --yes @vscode/vsce package --skip-license"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.4.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Joao2511/extensao.git"
+  },
+  "keywords": [
+    "ai",
+    "learning",
+    "typing",
+    "claude",
+    "codex",
+    "education"
+  ]
 }

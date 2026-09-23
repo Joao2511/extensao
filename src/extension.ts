@@ -2,12 +2,15 @@ import * as vscode from 'vscode';
 import { SessionManager } from './session';
 import { ClaudeHookReceiver } from './claudeHook';
 import { Walkthrough } from './walkthrough';
+import { FileWatcher } from './watcher';
 
 export function activate(ctx: vscode.ExtensionContext) {
   const out = vscode.window.createOutputChannel('Aprender');
   const mgr = new SessionManager(ctx);
   const walk = new Walkthrough(ctx, mgr, out);
   const hook = new ClaudeHookReceiver(ctx, mgr, walk, out);
+  // Qualquer IA que escreva no disco (Codex, Gemini CLI, Aider...): não precisa de hook.
+  new FileWatcher(ctx, hook, out);
 
   ctx.subscriptions.push(
     out,
@@ -17,6 +20,14 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('aprender.toggle', () => mgr.chooseMode()),
     vscode.commands.registerCommand('aprender.skipLine', () => mgr.skipLine()),
     vscode.commands.registerCommand('aprender.installClaudeHook', () => hook.install()),
+    // Para IAs sem hook: copia a instrução de "explicar antes do código" para colar no arquivo de regras da IA.
+    vscode.commands.registerCommand('aprender.copiarInstrucao', async () => {
+      const text = vscode.workspace.getConfiguration('aprender').get<string>('explainTextOutrasIAs', '');
+      await vscode.env.clipboard.writeText(text);
+      vscode.window.showInformationMessage(
+        'Aprender: instrução copiada. Cole no arquivo de regras da sua IA (.github/copilot-instructions.md, .cursor/rules, .windsurf/rules, CONVENTIONS.md...).',
+      );
+    }),
     // Explicação parte por parte (Claude Code em modo -p, com a conta do usuário).
     vscode.commands.registerCommand('aprender.explicarSelecao', () => walk.explainSelection()),
     vscode.commands.registerCommand('aprender.escolherModelo', () => walk.chooseModel()),

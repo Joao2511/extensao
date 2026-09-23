@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { requiredLengths } from './comments';
+import { syncAgentRules } from './agentRules';
 import { chooseHidden, Hidden, mask } from './challenge';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -162,6 +163,12 @@ export class SessionManager {
     } catch {
       /* sem permissão de escrita: o hook simplesmente não injeta nada */
     }
+    // Codex e Gemini não têm hook de prompt: a instrução vai no arquivo global de instruções deles.
+    const others =
+      this.enabled && this.config.get<boolean>('explainBeforeCode', true) && this.config.get<boolean>('explicar.outrasIAs', true)
+        ? this.config.get<string>('explainTextOutrasIAs', '')
+        : '';
+    syncAgentRules(others);
   }
 
   private updateToggleBar() {
@@ -243,6 +250,10 @@ export class SessionManager {
 
   private get config() {
     return vscode.workspace.getConfiguration('aprender');
+  }
+
+  hasSession(doc: vscode.TextDocument) {
+    return this.sessions.has(doc.uri.toString());
   }
 
   private sessionFor(doc: vscode.TextDocument): Session | undefined {

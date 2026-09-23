@@ -1,8 +1,9 @@
-import { execFile, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { killTree, runFile } from './platform';
 
 /** Uma parte didática do trecho: linhas 1-based relativas ao trecho enviado. */
 export interface Part {
@@ -90,7 +91,7 @@ export class Explainer {
   }
 
   cancel() {
-    this.child?.kill();
+    killTree(this.child);
     this.child = undefined;
   }
 
@@ -124,7 +125,7 @@ export class Explainer {
     delete env.CLAUDECODE; // se o VS Code foi aberto de dentro do Claude Code, o filho recusaria rodar
     this.cancel();
     return new Promise((resolve, reject) => {
-      const child = execFile(
+      const child = runFile(
         this.binary,
         args,
         { env, cwd: os.homedir(), maxBuffer: 16 * 1024 * 1024, timeout: 180_000 },

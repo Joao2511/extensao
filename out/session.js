@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionManager = void 0;
 const vscode = require("vscode");
 const comments_1 = require("./comments");
+const agentRules_1 = require("./agentRules");
 const challenge_1 = require("./challenge");
 const fs = require("fs");
 const os = require("os");
@@ -131,6 +132,11 @@ class SessionManager {
         catch {
             /* sem permissão de escrita: o hook simplesmente não injeta nada */
         }
+        // Codex e Gemini não têm hook de prompt: a instrução vai no arquivo global de instruções deles.
+        const others = this.enabled && this.config.get('explainBeforeCode', true) && this.config.get('explicar.outrasIAs', true)
+            ? this.config.get('explainTextOutrasIAs', '')
+            : '';
+        (0, agentRules_1.syncAgentRules)(others);
     }
     updateToggleBar() {
         const { text, tip } = MODE_LABEL[this.mode] ?? MODE_LABEL.digitar;
@@ -208,6 +214,9 @@ class SessionManager {
     // ---------- helpers ----------
     get config() {
         return vscode.workspace.getConfiguration('aprender');
+    }
+    hasSession(doc) {
+        return this.sessions.has(doc.uri.toString());
     }
     sessionFor(doc) {
         return this.sessions.get(doc.uri.toString());

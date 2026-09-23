@@ -2,9 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Walkthrough = void 0;
 const vscode = require("vscode");
-const fs = require("fs");
 const path = require("path");
 const explainer_1 = require("./explainer");
+const platform_1 = require("./platform");
 /**
  * Mostra a explicação parte por parte dentro do próprio editor, com a API de comentários do VS Code:
  * cada parte vira um cartão preso às suas linhas, com botões de anterior/próxima/concluir no cabeçalho.
@@ -33,18 +33,9 @@ class Walkthrough {
     }
     /** O binário que o próprio Claude Code do VS Code usa; assim o login e a cota são os da conta. */
     findBinary() {
-        const custom = this.config.get('explicar.caminhoDoClaude', '').trim();
-        if (custom)
-            return custom;
+        const custom = this.config.get('explicar.caminhoDoClaude', '');
         const ext = vscode.extensions.getExtension('Anthropic.claude-code');
-        if (ext) {
-            for (const name of ['claude', 'claude.exe']) {
-                const candidate = path.join(ext.extensionPath, 'resources', 'native-binary', name);
-                if (fs.existsSync(candidate))
-                    return candidate;
-            }
-        }
-        return 'claude'; // último recurso: o que estiver no PATH
+        return (0, platform_1.resolveClaude)(custom, ext?.extensionPath);
     }
     /** Explica `lines` (o código de verdade, mesmo que o editor só mostre o fantasma) a partir da linha `startLine`. */
     async start(editor, startLine, lines) {

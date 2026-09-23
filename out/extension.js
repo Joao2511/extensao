@@ -6,12 +6,21 @@ const vscode = require("vscode");
 const session_1 = require("./session");
 const claudeHook_1 = require("./claudeHook");
 const walkthrough_1 = require("./walkthrough");
+const watcher_1 = require("./watcher");
 function activate(ctx) {
     const out = vscode.window.createOutputChannel('Aprender');
     const mgr = new session_1.SessionManager(ctx);
     const walk = new walkthrough_1.Walkthrough(ctx, mgr, out);
     const hook = new claudeHook_1.ClaudeHookReceiver(ctx, mgr, walk, out);
+    // Qualquer IA que escreva no disco (Codex, Gemini CLI, Aider...): não precisa de hook.
+    new watcher_1.FileWatcher(ctx, hook, out);
     ctx.subscriptions.push(out, vscode.commands.registerCommand('aprender.start', () => mgr.startFromSelection()), vscode.commands.registerCommand('aprender.reveal', () => mgr.reveal()), vscode.commands.registerCommand('aprender.revealAll', () => mgr.revealAll()), vscode.commands.registerCommand('aprender.toggle', () => mgr.chooseMode()), vscode.commands.registerCommand('aprender.skipLine', () => mgr.skipLine()), vscode.commands.registerCommand('aprender.installClaudeHook', () => hook.install()), 
+    // Para IAs sem hook: copia a instrução de "explicar antes do código" para colar no arquivo de regras da IA.
+    vscode.commands.registerCommand('aprender.copiarInstrucao', async () => {
+        const text = vscode.workspace.getConfiguration('aprender').get('explainTextOutrasIAs', '');
+        await vscode.env.clipboard.writeText(text);
+        vscode.window.showInformationMessage('Aprender: instrução copiada. Cole no arquivo de regras da sua IA (.github/copilot-instructions.md, .cursor/rules, .windsurf/rules, CONVENTIONS.md...).');
+    }), 
     // Explicação parte por parte (Claude Code em modo -p, com a conta do usuário).
     vscode.commands.registerCommand('aprender.explicarSelecao', () => walk.explainSelection()), vscode.commands.registerCommand('aprender.escolherModelo', () => walk.chooseModel()), vscode.commands.registerCommand('aprender.escolherEffort', () => walk.chooseEffort()), vscode.commands.registerCommand('aprender.aprenderArquivo', () => walk.learnFile()), 
     // Modo desafio: partes do código escondidas no treino.
